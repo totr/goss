@@ -1,6 +1,7 @@
 #!/bin/bash
 
 set -e
+[ "$DEBUG" ] && set -x
 
 USAGE="USAGE: $(basename "$0") [run|edit] <docker_run_params>"
 GOSS_FILES_PATH="${GOSS_FILES_PATH:-.}"
@@ -18,12 +19,20 @@ error() {
 
 cleanup() {
     set +e
+    # There is a chance that the log will not be written completely.
+    # Exit the container and retrieve the last line of logs to ensure
+    # that all logs have been read.
+    info "Stopping container"
+    $CONTAINER_RUNTIME stop --time 1 "$id" > /dev/null 2>&1
+    $CONTAINER_RUNTIME logs --tail 1 "$id" > /dev/null 2>&1
+
     { kill "$log_pid" && wait "$log_pid"; } 2> /dev/null
     if [ -n "$CONTAINER_LOG_OUTPUT" ]; then
+        info "Copying log"
         cp "$tmp_dir/docker_output.log" "$CONTAINER_LOG_OUTPUT"
     fi
-    rm -rf "$tmp_dir"
-    if [[ $id ]];then
+    [ "$DEBUG" ] || rm -rf "$tmp_dir"
+    if [[ $id ]]; then
         info "Deleting container"
         $CONTAINER_RUNTIME rm -vf "$id" > /dev/null
     fi
@@ -36,6 +45,12 @@ run(){
     [[ -e "${GOSS_FILES_PATH}/${GOSS_FILE:-goss.yaml}" ]] && cp "${GOSS_FILES_PATH}/${GOSS_FILE:-goss.yaml}" "$tmp_dir/goss.yaml" && chmod 644 "$tmp_dir/goss.yaml"
     [[ -e "${GOSS_FILES_PATH}/goss_wait.yaml" ]] && cp "${GOSS_FILES_PATH}/goss_wait.yaml" "$tmp_dir" && chmod 644 "$tmp_dir/goss_wait.yaml"
     [[ -n "${GOSS_VARS}" ]] && [[ -e "${GOSS_FILES_PATH}/${GOSS_VARS}" ]] && cp "${GOSS_FILES_PATH}/${GOSS_VARS}" "$tmp_dir" && chmod 644 "$tmp_dir/${GOSS_VARS}"
+    if [ -n "$GOSS_ADDITIONAL_COPY_PATH" ]; then
+        for dir in "$(echo "$GOSS_ADDITIONAL_COPY_PATH" | sed 's/:/ /g')"; do
+            cp -r ${dir} "${tmp_dir}/"
+            chmod -R 755 "$tmp_dir/$(basename ${dir})"
+        done
+    fi
 
     # Switch between mount or cp files strategy
     GOSS_FILES_STRATEGY=${GOSS_FILES_STRATEGY:="mount"}

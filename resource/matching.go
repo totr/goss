@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -38,11 +39,8 @@ func (a *Matching) TypeName() string { return MatchingResourceName }
 func (r *Matching) GetTitle() string { return r.Title }
 func (r *Matching) GetMeta() meta    { return r.Meta }
 
-func (a *Matching) Validate(sys *system.System) []TestResult {
-	skip := false
-	if a.Skip {
-		skip = true
-	}
+func (a *Matching) Validate(_ context.Context, sys *system.System) []TestResult {
+	skip := a.Skip
 
 	var stub interface{}
 	if a.AsReader {

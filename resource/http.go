@@ -62,8 +62,8 @@ func (r *HTTP) getURL() string {
 	return r.id
 }
 
-func (u *HTTP) Validate(sys *system.System) []TestResult {
-	ctx := context.WithValue(context.Background(), "id", u.ID())
+func (u *HTTP) Validate(ctx context.Context, sys *system.System) []TestResult {
+	ctx = context.WithValue(ctx, idKey{}, u.ID())
 	skip := u.Skip
 	if u.Timeout == 0 {
 		u.Timeout = 5000
@@ -78,16 +78,17 @@ func (u *HTTP) Validate(sys *system.System) []TestResult {
 		RequestHeader: u.RequestHeader, RequestBody: u.RequestBody, Method: u.Method})
 	sysHTTP.SetAllowInsecure(u.AllowInsecure)
 	sysHTTP.SetNoFollowRedirects(u.NoFollowRedirects)
+	defer sysHTTP.Close()
 
 	var results []TestResult
 	results = append(results, ValidateValue(u, "status", u.Status, sysHTTP.Status, skip))
 	if shouldSkip(results) {
 		skip = true
 	}
-	if isSet(u.Headers) {
+	if isSetWarnEmpty(u.Headers, fmt.Sprintf("%s: http.headers", u.ID())) {
 		results = append(results, ValidateValue(u, "Headers", u.Headers, sysHTTP.Headers, skip))
 	}
-	if isSet(u.Body) {
+	if isSetWarnEmpty(u.Body, fmt.Sprintf("%s: http.body", u.ID())) {
 		results = append(results, ValidateValue(u, "Body", u.Body, sysHTTP.Body, skip))
 	}
 
@@ -102,7 +103,6 @@ func NewHTTP(sysHTTP system.HTTP, config util.Config) (*HTTP, error) {
 		Status:            status,
 		RequestHeader:     []string{},
 		Headers:           nil,
-		Body:              []string{},
 		AllowInsecure:     config.AllowInsecure,
 		NoFollowRedirects: config.NoFollowRedirects,
 		Timeout:           config.TimeOutMilliSeconds(),

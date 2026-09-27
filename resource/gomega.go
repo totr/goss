@@ -1,11 +1,25 @@
 package resource
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/goss-org/goss/matchers"
 	"github.com/samber/lo"
 )
+
+var (
+	errMissingRequiredAttribute = errors.New("Syntax Error: Missing required attribute")
+	errEmptyMatcher             = errors.New("Syntax Error: Invalid matcher configuration. An empty map asserts nothing, exactly one matcher is required")
+	errEmptyMatcherGroup        = errors.New("asserts nothing, at least one matcher is required")
+)
+
+// emptyMatcherGroupError reports a matcher that reduces to no sub-matchers at
+// all. Gomega treats that as vacuously true, so the test would be reported as
+// passing without ever looking at the value.
+func emptyMatcherGroupError(name string) error {
+	return fmt.Errorf("Syntax Error: Invalid '%s' argument. An empty value %w", name, errEmptyMatcherGroup)
+}
 
 func matcherToGomegaMatcher(matcher any) (matchers.GossMatcher, error) {
 	// Default matchers
@@ -28,7 +42,7 @@ func matcherToGomegaMatcher(matcher any) (matchers.GossMatcher, error) {
 		return matchers.ContainElements(interfaceSlice...), nil
 	}
 	if matcher == nil {
-		return nil, fmt.Errorf("Syntax Error: Missing required attribute")
+		return nil, errMissingRequiredAttribute
 	}
 	matcherMap, ok := matcher.(map[string]any)
 	if !ok {
@@ -36,6 +50,9 @@ func matcherToGomegaMatcher(matcher any) (matchers.GossMatcher, error) {
 		//panic(fmt.Sprintf("Syntax Error: Unexpected matcher type: %T\n\n", matcher))
 	}
 	keys := lo.Keys(matcherMap)
+	if len(keys) == 0 {
+		return nil, errEmptyMatcher
+	}
 	if len(keys) > 1 {
 		return nil, fmt.Errorf("Syntax Error: Invalid matcher configuration. At a given nesting level, only one matcher is allowed. Found multiple matchers: %q", keys)
 	}
@@ -110,6 +127,9 @@ func matcherToGomegaMatcher(matcher any) (matchers.GossMatcher, error) {
 		if err != nil {
 			return nil, err
 		}
+		if len(subMatchers) == 0 {
+			return nil, emptyMatcherGroupError(matchType)
+		}
 		var interfaceSlice []any
 		for _, d := range subMatchers {
 			interfaceSlice = append(interfaceSlice, d)
@@ -136,6 +156,9 @@ func matcherToGomegaMatcher(matcher any) (matchers.GossMatcher, error) {
 		if err != nil {
 			return nil, err
 		}
+		if len(subMatchers) == 0 {
+			return nil, emptyMatcherGroupError(matchType)
+		}
 		return matchers.And(subMatchers...), nil
 	case "or":
 		subMatchers, err := sliceToGomega(value, "or")
@@ -153,11 +176,42 @@ func matcherToGomegaMatcher(matcher any) (matchers.GossMatcher, error) {
 
 		}
 		return matchers.BeSemverConstraint(v), nil
+
+	case "xml":
+		vmap, ok := value.(map[string]any)
+		if !ok {
+			return nil, invalidArgSyntaxError("xml", "map", value)
+		}
+
+		dict := make(map[string]string, len(vmap))
+		for key, val := range vmap {
+			dict[key] = fmt.Sprintf("%v", val)
+		}
+
+		// Check if xpath and result key are in the map
+		var isXpath, isResult bool
+		for key := range dict {
+			switch key {
+			case "result":
+				isResult = true
+			case "xpath":
+				isXpath = true
+			}
+		}
+
+		if isXpath && isResult {
+			return matchers.XML(dict), nil
+		}
+		return nil, invalidArgSyntaxError("xml", "xpath and result to have", dict)
+
 	case "gjson":
 		var subMatchers []matchers.GossMatcher
 		valueI, ok := value.(map[string]any)
 		if !ok {
 			return nil, invalidArgSyntaxError("gjson", "map", value)
+		}
+		if len(valueI) == 0 {
+			return nil, emptyMatcherGroupError(matchType)
 		}
 		for key, val := range valueI {
 			subMatcher, err := matcherToGomegaMatcher(val)

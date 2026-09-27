@@ -17,13 +17,31 @@ command:
     exec: false
     exit-status: 0
     skip: true
+  command-exec-style:
+    exec: [uname]
+    exit-status: 0
+    stdout:
+    - /Linux/
+  command-exec-style-args:
+    exec: ["uname", "-s"]
+    exit-status: 0
+    stdout:
+    - /Linux/
+  command-exact-match:
+    exec: printf 'goss-exact-match'
+    exit-status: 0
+    # A single string (rather than a list) is matched exactly, which is what
+    # `goss add command --exact-match` generates.
+    stdout: goss-exact-match
 file:
 {{range mkSlice "/etc/PAsswD" "/etc/group"}}
   {{. | toLower}}:
     exists: true
     mode: '0644'
     owner: root
+    uid: 0
     group: root
+    gid: 0
     filetype: file
     contents:
     - root
@@ -63,6 +81,9 @@ package:
     - {{$ver}}
 {{end}}
 service:
+  dnsmasq:
+    enabled: true
+    running: true
 {{- range $name, $runlevels := index .Vars .Env.OS "services"}}
   {{$name}}:
     enabled: true
@@ -99,33 +120,33 @@ dns:
     - 0 issue letsencrypt.org
     - 0 issuewild ;
     timeout: 2000
-    server: 8.8.8.8
+    server: 127.0.0.1:8053
   CNAME:c.dnstest.io:
     resolvable: true
     addrs:
     - a.dnstest.io.
     timeout: 2000
-    server: 8.8.8.8
+    server: 127.0.0.1:8053
   c.dnstest.io:
     resolvable: true
     addrs:
     - 192.30.252.153
     timeout: 2000
-    server: 8.8.8.8:53
+    server: 127.0.0.1:8053
   MX:dnstest.io:
     resolvable: true
     addrs:
     - 10 b.dnstest.io.
     - 5 a.dnstest.io.
     timeout: 2000
-    server: 8.8.8.8:53
+    server: 127.0.0.1:8053
   NS:dnstest.io:
     resolvable: true
     addrs:
     - ns1.dnstest.io.
     - ns2.dnstest.io.
     timeout: 2000
-    server: 8.8.8.8
+    server: 127.0.0.1:8053
   PTR:54.243.154.1:
     resolvable: true
     addrs:
@@ -138,19 +159,25 @@ dns:
     - 0 5 443 a.dnstest.io.
     - 10 10 443 b.dnstest.io.
     timeout: 2000
-    server: 8.8.8.8
+    server: 127.0.0.1:8053
+  SSHFP:mars.dnstest.io:
+    resolvable: true
+    addrs:
+    - 1 2 422F22EFB548FEAC403A633A86F74553599B85AC93E7EC3BB0A46B6CD6DDABF8
+    timeout: 2000
+    server: 127.0.0.1:8053
   TXT:txt._test.dnstest.io:
     resolvable: true
     addrs:
     - Hello DNS
     timeout: 2000
-    server: 8.8.8.8
+    server: 127.0.0.1:8053
   ip6.dnstest.io:
     resolvable: true
     addrs:
     - 2404:6800:4001:807::200e
     timeout: 2000
-    server: 8.8.8.8
+    server: 127.0.0.1:8053
   localhost:
     resolvable: true
     addrs:
@@ -158,7 +185,7 @@ dns:
     timeout: 2000
   dnstest.io:
     resolvable: true
-    server: 8.8.8.8
+    server: 127.0.0.1:8053
     timeout: 2000
 process:
   foobar:
@@ -169,6 +196,7 @@ kernel-param:
 mount:
   "/dev":
     exists: true
+    timeout: 1000
     opts:
     - rw
     - nosuid
@@ -201,7 +229,9 @@ http:
     request-headers:
       - "Foo: bar"
     headers: ["Content-Type: application/json"]
-    body: ['"Foo": "bar"']
+    body:
+      - '"Foo": "bar"'
+      - '/"User-Agent": "goss/v?[0-9]+.[0-9]+.[0-9]+(-next)?"/'
   http://httpbin/headers?host:
     status: 200
     timeout: 60000
@@ -288,4 +318,3 @@ gossfile:
     skip: true
   bypath:
     file: "goss-dummy.yaml"
-

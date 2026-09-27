@@ -1,0 +1,20 @@
+# Read the Docs configuration file for MkDocs projects
+# See https://docs.readthedocs.io/en/stable/config-file/v2.html for details
+
+# Required
+version: 2
+
+# Set the version of Python and other tools you might need
+build:
+  os: ubuntu-24.04
+  tools:
+    python: latest
+  jobs:
+    install:
+      - pip install -r docs/requirements.txt
+    build:
+      html:
+        - zensical build
+    post_build:
+      - mkdir -p $READTHEDOCS_OUTPUT/html/
+      - cp --recursive site/* $READTHEDOCS_OUTPUT/html/

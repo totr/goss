@@ -14,7 +14,7 @@ import (
 // ConfigOption manipulates Config
 type ConfigOption func(c *Config) error
 
-// Config is the runtime configuration for the goss system, the cli.Context gets
+// Config is the runtime configuration for the goss system, the cli.Command gets
 // converted to this and it allows other packages to embed goss by creating this
 // structure and using it when adding, validating etc.
 //
@@ -26,6 +26,7 @@ type Config struct {
 	Cache                 time.Duration
 	Debug                 bool
 	Endpoint              string
+	ExactMatch            bool
 	FormatOptions         []string
 	IgnoreList            []string
 	ListenAddress         string
@@ -52,7 +53,7 @@ type Config struct {
 	CAFile                string
 	CertFile              string
 	KeyFile               string
-	Vars                  string
+	VarsFiles             []string
 	VarsInline            string
 	DisabledResourceTypes []string
 }
@@ -90,7 +91,7 @@ func NewConfig(opts ...ConfigOption) (rc *Config, err error) {
 		Spec:                  "",
 		Timeout:               0,
 		Username:              "",
-		Vars:                  "",
+		VarsFiles:             []string{},
 		VarsInline:            "",
 	}
 
@@ -206,10 +207,10 @@ func WithDebug() ConfigOption {
 	}
 }
 
-// WithVarsFile is a json or yaml file containing variables to pass to the validator
-func WithVarsFile(file string) ConfigOption {
+// WithVarsFiles are json or yaml files containing variables to pass to the validator
+func WithVarsFiles(files []string) ConfigOption {
 	return func(c *Config) error {
-		c.Vars = file
+		c.VarsFiles = files
 		return nil
 	}
 }
@@ -271,7 +272,7 @@ func ValidateSections(unmarshal func(any) error, i any, whitelist map[string]boo
 	typ := reflect.TypeOf(i)
 	typs := strings.Split(typ.String(), ".")[1]
 	for id, v := range toValidate {
-		for k, _ := range v {
+		for k := range v {
 			if !whitelist[k] {
 				return fmt.Errorf("invalid Attribute for %s:%s: %s", typs, id, k)
 			}
@@ -295,7 +296,7 @@ func WhitelistAttrs(i any, format format) (map[string]bool, error) {
 
 func IsValueInList(value string, list []string) bool {
 	for _, v := range list {
-		if strings.ToLower(v) == strings.ToLower(value) {
+		if strings.EqualFold(v, value) {
 			return true
 		}
 	}

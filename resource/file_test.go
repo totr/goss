@@ -1,0 +1,32 @@
+package resource
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/goss-org/goss/system"
+	"github.com/goss-org/goss/util"
+
+	"gopkg.in/yaml.v3"
+)
+
+// Contents must stay unset and marshal away: an empty list asserts nothing, so
+// every generated gossfile would warn about it.
+func TestNewFileLeavesContentsUnset(t *testing.T) {
+	sysFile := system.NewDefFile(t.Context(), "/etc/hostname", nil, util.Config{})
+	f, err := NewFile(sysFile, util.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Contents != nil {
+		t.Errorf("NewFile Contents = %#v, want nil", f.Contents)
+	}
+
+	out, err := yaml.Marshal(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), "contents") {
+		t.Errorf("marshalled file contains a contents key:\n%s", out)
+	}
+}

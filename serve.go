@@ -2,6 +2,7 @@ package goss
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -9,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fatih/color"
 	"github.com/goss-org/goss/outputs"
 	"github.com/goss-org/goss/resource"
 	"github.com/goss-org/goss/system"
@@ -17,6 +17,12 @@ import (
 	"github.com/patrickmn/go-cache"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
+
+// cacheMissLogFormat is logged whenever a health probe finds the result cache
+// cold and has to run the test suite. It carries a level prefix so that it can
+// be muted via --loglevel; without one it was emitted unconditionally and
+// flooded the logs of any container being polled by a load balancer.
+const cacheMissLogFormat = "[DEBUG] Stale cache[%s], running tests"
 
 func Serve(c *util.Config) error {
 	err := setLogLevel(c)
@@ -35,10 +41,11 @@ func Serve(c *util.Config) error {
 }
 
 func newHealthHandler(c *util.Config) (*healthHandler, error) {
-	color.NoColor = true
+	// The health endpoint always emits machine-readable output.
+	outputs.SetNoColor(true)
 	cache := cache.New(c.Cache, 30*time.Second)
 
-	cfg, err := getGossConfig(c.Vars, c.VarsInline, c.Spec)
+	cfg, err := getGossConfig(c.VarsFiles, c.VarsInline, c.Spec)
 	if err != nil {
 		return nil, err
 	}
@@ -84,8 +91,8 @@ func (h healthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	negotiatedContentType := h.responseContentType(outputFormat)
 
 	log.Printf("[TRACE] %v: requesting health probe", r.RemoteAddr)
-	resp := h.processAndEnsureCached(negotiatedContentType, outputer)
-	w.Header().Set(http.CanonicalHeaderKey("Content-Type"), negotiatedContentType)
+	resp := h.processAndEnsureCached(r.Context(), negotiatedContentType, outputer)
+	w.Header().Set("Content-Type", negotiatedContentType)
 	w.WriteHeader(resp.statusCode)
 	logBody := ""
 	if resp.statusCode != http.StatusOK {
@@ -95,19 +102,23 @@ func (h healthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[DEBUG] %v: status %d%s", r.RemoteAddr, resp.statusCode, logBody)
 }
 
-func (h healthHandler) processAndEnsureCached(negotiatedContentType string, outputer outputs.Outputer) res {
+func (h healthHandler) processAndEnsureCached(ctx context.Context, negotiatedContentType string, outputer outputs.Outputer) res {
 	var tra [][]resource.TestResult
 	cacheKey := "res"
-	tmp, found := h.cache.Get(cacheKey)
-	if found {
+	// Held across the lookup so a miss does not let a second request start its
+	// own validate() before the first one has filled the cache.
+	h.gossMu.Lock()
+	if tmp, found := h.cache.Get(cacheKey); found {
 		log.Printf("[TRACE] Returning cached[%s].", cacheKey)
 		tra = tmp.([][]resource.TestResult)
 	} else {
-		log.Printf("Stale cache[%s], running tests", cacheKey)
+		log.Printf(cacheMissLogFormat, cacheKey)
 		h.sys = system.New(h.c.PackageManager)
-		tra = h.validate()
+		tra = h.validate(ctx)
 		h.cache.SetDefault(cacheKey, tra)
 	}
+	h.gossMu.Unlock()
+
 	trc := testResultArrayToChan(tra)
 	return h.output(trc, outputer)
 }
@@ -128,10 +139,10 @@ func (h healthHandler) output(trc <-chan []resource.TestResult, outputer outputs
 	}
 	return resp
 }
-func (h healthHandler) validate() [][]resource.TestResult {
+func (h healthHandler) validate(ctx context.Context) [][]resource.TestResult {
 	h.sys = system.New(h.c.PackageManager)
 	res := make([][]resource.TestResult, 0)
-	tr := validate(h.sys, h.gossConfig, h.c.DisabledResourceTypes, h.maxConcurrent)
+	tr := validate(ctx, h.sys, h.gossConfig, h.c.DisabledResourceTypes, h.maxConcurrent)
 	for i := range tr {
 		res = append(res, i)
 	}
@@ -186,5 +197,9 @@ func (h healthHandler) responseContentType(outputName string) string {
 	if outputName == "json" {
 		return "application/json"
 	}
+	if outputName == "prometheus" {
+		return "text/plain; version=0.0.4"
+	}
+
 	return fmt.Sprintf("%s%s", mediaTypePrefix, outputName)
 }

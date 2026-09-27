@@ -1,7 +1,8 @@
-FROM base/archlinux
-MAINTAINER @siddharthist
-
-RUN pacman -Sy --noconfirm systemd-sysvcompat
+FROM archlinux:base
+RUN pacman -Syu --noconfirm apache dnsmasq tinyproxy && \
+    pacman -Scc
+COPY dnsmasq.conf /etc/dnsmasq.conf
 RUN ln -s /does_not_exist /foo && \
     chmod 700 ~root
+RUN systemctl enable httpd dnsmasq tinyproxy
 RUN mkfifo /pipe

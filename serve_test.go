@@ -1,7 +1,6 @@
 package goss
 
 import (
-	"bytes"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -44,7 +43,7 @@ func TestServeWithNoContentNegotiation(t *testing.T) {
 	for testName := range tests {
 		tc := tests[testName]
 		t.Run(testName, func(t *testing.T) {
-			var logOutput bytes.Buffer
+			var logOutput syncBuffer
 			log.SetOutput(&logOutput)
 
 			config, err := util.NewConfig(
@@ -66,7 +65,7 @@ func TestServeWithNoContentNegotiation(t *testing.T) {
 			t.Logf("testName %q log output:\n%s", testName, logOutput.String())
 			assert.Equal(t, tc.expectedHTTPStatus, rr.Code)
 			if tc.expectedContentType != "" {
-				assert.Equal(t, []string{tc.expectedContentType}, rr.HeaderMap["Content-Type"])
+				assert.Equal(t, tc.expectedContentType, rr.Result().Header.Get("Content-Type"))
 			}
 		})
 	}
@@ -117,6 +116,15 @@ func TestServeNegotiatingContent(t *testing.T) {
 			expectedHTTPStatus:  http.StatusOK,
 			expectedContentType: "application/json",
 		},
+		"accept prometheus": {
+			acceptHeader: []string{
+				"text/plain; version=0.0.4",
+			},
+			outputFormat:        "prometheus",
+			specFile:            filepath.Join("testdata", "passing.goss.yaml"),
+			expectedHTTPStatus:  http.StatusOK,
+			expectedContentType: "text/plain; version=0.0.4",
+		},
 		"accept header contains vendor-specific output format different from process-level": {
 			acceptHeader: []string{
 				"application/vnd.goss-rspecish",
@@ -149,7 +157,7 @@ func TestServeNegotiatingContent(t *testing.T) {
 	for testName := range tests {
 		tc := tests[testName]
 		t.Run(testName, func(t *testing.T) {
-			var logOutput bytes.Buffer
+			var logOutput syncBuffer
 			log.SetOutput(&logOutput)
 
 			config, err := util.NewConfig(
@@ -173,14 +181,14 @@ func TestServeNegotiatingContent(t *testing.T) {
 			t.Logf("testName %q log output:\n%s", testName, logOutput.String())
 			assert.Equal(t, tc.expectedHTTPStatus, rr.Code)
 			if tc.expectedContentType != "" {
-				assert.Equal(t, []string{tc.expectedContentType}, rr.HeaderMap["Content-Type"])
+				assert.Equal(t, tc.expectedContentType, rr.Result().Header.Get("Content-Type"))
 			}
 		})
 	}
 }
 
 func TestServeCacheWithNoContentNegotiation(t *testing.T) {
-	var logOutput bytes.Buffer
+	var logOutput syncBuffer
 	log.SetOutput(&logOutput)
 	const cache = time.Duration(time.Millisecond * 100)
 	config, err := util.NewConfig(
@@ -227,7 +235,7 @@ func TestServeCacheWithNoContentNegotiation(t *testing.T) {
 }
 
 func TestServeCacheNegotiatingContent(t *testing.T) {
-	var logOutput bytes.Buffer
+	var logOutput syncBuffer
 	log.SetOutput(&logOutput)
 	const cache = time.Duration(time.Millisecond * 100)
 	config, err := util.NewConfig(
@@ -297,11 +305,9 @@ func TestServeCacheNegotiatingContent(t *testing.T) {
 func makeRequest(t *testing.T, config *util.Config, headers map[string][]string) *http.Request {
 	req, err := http.NewRequest("GET", config.Endpoint, nil)
 	require.NoError(t, err)
-	if headers != nil {
-		for header, vals := range headers {
-			for _, v := range vals {
-				req.Header.Add(header, v)
-			}
+	for header, vals := range headers {
+		for _, v := range vals {
+			req.Header.Add(header, v)
 		}
 	}
 	return req

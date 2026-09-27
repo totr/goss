@@ -1,8 +1,5 @@
 ---
 service:
-  MSDTC:
+  EventLog:
     enabled: true
     running: true
-
-    # needs implementation
-    skip: true

@@ -41,10 +41,6 @@ func HumanOutcomes() map[int]string {
 	return humanOutcomes
 }
 
-const (
-	maxScanTokenSize = 10 * 1024 * 1024
-)
-
 type ValidateError string
 
 func (g ValidateError) Error() string { return string(g) }
@@ -130,6 +126,29 @@ func ValidateValue(res ResourceRead, property string, expectedValue any, actual 
 	return ValidateGomegaValue(res, property, expectedValue, actual, skip)
 }
 
+func ValidateValueWithRetry(res ResourceRead, property string, expectedValue any, actualFunc func() (any, error), skip bool, retryCount int, retryDelay RetryDelay) TestResult {
+	if skip {
+		// Return skip result immediately
+		skipFunc := func() (any, error) { return nil, nil }
+		return ValidateValue(res, property, expectedValue, skipFunc, skip)
+	}
+
+	var lastResult TestResult
+
+	runWithRetry(retryCount, retryDelay, func() bool {
+		actual, err := actualFunc()
+
+		// Create a function that returns the current result
+		currentFunc := func() (any, error) { return actual, err }
+		result := ValidateValue(res, property, expectedValue, currentFunc, skip)
+		lastResult = result
+
+		return result.Result == SUCCESS
+	})
+
+	return lastResult
+}
+
 func ValidateGomegaValue(res ResourceRead, property string, expectedValue any, actual any, skip bool) TestResult {
 	id := res.ID()
 	title := res.GetTitle()
@@ -163,7 +182,13 @@ func ValidateGomegaValue(res ResourceRead, property string, expectedValue any, a
 	case func() (any, error):
 		foundValue, err = f()
 	case func() (io.Reader, error):
-		foundValue, err = f()
+		r, err := f()
+		if err == nil {
+			i, err := matchers.ReaderToString{}.Transform(r)
+			if err == nil {
+				foundValue = i.(string)
+			}
+		}
 		gomegaMatcher = matchers.HavePatterns(expectedValue)
 	default:
 		err = fmt.Errorf("Unknown method signature: %t", f)

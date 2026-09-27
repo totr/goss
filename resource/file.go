@@ -18,11 +18,13 @@ type File struct {
 	Mode     matcher `json:"mode,omitempty" yaml:"mode,omitempty"`
 	Size     matcher `json:"size,omitempty" yaml:"size,omitempty"`
 	Owner    matcher `json:"owner,omitempty" yaml:"owner,omitempty"`
+	Uid      matcher `json:"uid,omitempty" yaml:"uid,omitempty"`
 	Group    matcher `json:"group,omitempty" yaml:"group,omitempty"`
+	Gid      matcher `json:"gid,omitempty" yaml:"gid,omitempty"`
 	LinkedTo matcher `json:"linked-to,omitempty" yaml:"linked-to,omitempty"`
 	Filetype matcher `json:"filetype,omitempty" yaml:"filetype,omitempty"`
 	Contains matcher `json:"contains,omitempty" yaml:"contains,omitempty"`
-	Contents matcher `json:"contents" yaml:"contents"`
+	Contents matcher `json:"contents,omitempty" yaml:"contents,omitempty"`
 	Md5      matcher `json:"md5,omitempty" yaml:"md5,omitempty"`
 	Sha256   matcher `json:"sha256,omitempty" yaml:"sha256,omitempty"`
 	Sha512   matcher `json:"sha512,omitempty" yaml:"sha512,omitempty"`
@@ -58,8 +60,8 @@ func (f *File) GetPath() string {
 	return f.id
 }
 
-func (f *File) Validate(sys *system.System) []TestResult {
-	ctx := context.WithValue(context.Background(), "id", f.ID())
+func (f *File) Validate(ctx context.Context, sys *system.System) []TestResult {
+	ctx = context.WithValue(ctx, idKey{}, f.ID())
 	skip := f.Skip
 	sysFile := sys.NewFile(ctx, f.GetPath(), sys, util.Config{})
 
@@ -74,8 +76,14 @@ func (f *File) Validate(sys *system.System) []TestResult {
 	if f.Owner != nil {
 		results = append(results, ValidateValue(f, "owner", f.Owner, sysFile.Owner, skip))
 	}
+	if f.Uid != nil {
+		results = append(results, ValidateValue(f, "uid", f.Uid, sysFile.Uid, skip))
+	}
 	if f.Group != nil {
 		results = append(results, ValidateValue(f, "group", f.Group, sysFile.Group, skip))
+	}
+	if f.Gid != nil {
+		results = append(results, ValidateValue(f, "gid", f.Gid, sysFile.Gid, skip))
 	}
 	if f.LinkedTo != nil {
 		results = append(results, ValidateValue(f, "linkedto", f.LinkedTo, sysFile.LinkedTo, skip))
@@ -83,11 +91,11 @@ func (f *File) Validate(sys *system.System) []TestResult {
 	if f.Filetype != nil {
 		results = append(results, ValidateValue(f, "filetype", f.Filetype, sysFile.Filetype, skip))
 	}
-	if isSet(f.Contains) {
+	if isSetWarnEmpty(f.Contains, fmt.Sprintf("%s: file.contains", f.ID())) {
 		fmt.Fprintf(os.Stderr, "DEPRECATION WARNING: file.contains has been renamed to file.contents\n")
 		results = append(results, ValidateValue(f, "contains", f.Contains, sysFile.Contents, skip))
 	}
-	if isSet(f.Contents) {
+	if isSetWarnEmpty(f.Contents, fmt.Sprintf("%s: file.contents", f.ID())) {
 		results = append(results, ValidateValue(f, "contents", f.Contents, sysFile.Contents, skip))
 	}
 	if f.Size != nil {
@@ -112,9 +120,8 @@ func NewFile(sysFile system.File, config util.Config) (*File, error) {
 		return nil, err
 	}
 	f := &File{
-		id:       path,
-		Exists:   exists,
-		Contents: []string{},
+		id:     path,
+		Exists: exists,
 	}
 	if !contains(config.IgnoreList, "mode") {
 		if mode, err := sysFile.Mode(); err == nil {

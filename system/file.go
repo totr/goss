@@ -25,7 +25,9 @@ type File interface {
 	Size() (int, error)
 	Filetype() (string, error)
 	Owner() (string, error)
+	Uid() (int, error)
 	Group() (string, error)
+	Gid() (int, error)
 	LinkedTo() (string, error)
 	Md5() (string, error)
 	Sha256() (string, error)
@@ -36,14 +38,13 @@ type hashFuncType string
 
 const (
 	md5Hash    hashFuncType = "md5"
-	sha256Hash              = "sha256"
-	sha512Hash              = "sha512"
+	sha256Hash hashFuncType = "sha256"
+	sha512Hash hashFuncType = "sha512"
 )
 
 type DefFile struct {
 	path     string
 	realPath string
-	fi       os.FileInfo
 	loaded   bool
 	err      error
 }
@@ -165,7 +166,7 @@ func realPath(path string) (string, error) {
 	if f == "~" {
 		usr, err = user.Current()
 	} else {
-		usr, err = user.Lookup(f[1:len(f)])
+		usr, err = user.Lookup(f[1:])
 	}
 	if err != nil {
 		return "", err
@@ -229,7 +230,7 @@ func getUserForUid(uid int) (string, error) {
 
 	cmd := util.NewCommand("getent", "passwd", strconv.Itoa(uid))
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("Error: no matching entries in passwd file. getent passwd: %v", err)
+		return "", fmt.Errorf("Error: no matching entries in passwd file. getent passwd: %w", err)
 	}
 	userS := strings.Split(cmd.Stdout.String(), ":")[0]
 
@@ -243,7 +244,7 @@ func getGroupForGid(gid int) (string, error) {
 
 	cmd := util.NewCommand("getent", "group", strconv.Itoa(gid))
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("Error: no matching entries in passwd file. getent group: %v", err)
+		return "", fmt.Errorf("Error: no matching entries in passwd file. getent group: %w", err)
 	}
 	groupS := strings.Split(cmd.Stdout.String(), ":")[0]
 

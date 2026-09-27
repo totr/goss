@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -16,6 +17,9 @@ import (
 	"github.com/goss-org/goss/util"
 )
 
+const USER_AGENT_HEADER_PREFIX = "user-agent:"
+const DEFAULT_USER_AGENT_PREFIX = "goss/"
+
 type HTTP interface {
 	HTTP() string
 	Status() (int, error)
@@ -24,6 +28,7 @@ type HTTP interface {
 	Exists() (bool, error)
 	SetAllowInsecure(bool)
 	SetNoFollowRedirects(bool)
+	Close() error
 }
 
 type DefHTTP struct {
@@ -47,9 +52,18 @@ type DefHTTP struct {
 
 func NewDefHTTP(_ context.Context, httpStr string, system *System, config util.Config) HTTP {
 	headers := http.Header{}
+
+	if !hasUserAgentHeader(config.RequestHeader) {
+		config.RequestHeader = append(config.RequestHeader, fmt.Sprintf("%s %s%s", USER_AGENT_HEADER_PREFIX, DEFAULT_USER_AGENT_PREFIX, util.Version))
+	}
+
 	for _, r := range config.RequestHeader {
-		str := strings.SplitN(r, ": ", 2)
-		headers.Add(str[0], str[1])
+		name, value, found := strings.Cut(r, ":")
+		if !found {
+			log.Printf("[WARNING] ignoring malformed request header %q, expected \"Name: value\"", r)
+			continue
+		}
+		headers.Add(strings.TrimSpace(name), strings.TrimSpace(value))
 	}
 	return &DefHTTP{
 		http:              httpStr,
@@ -208,4 +222,20 @@ func (u *DefHTTP) Body() (io.Reader, error) {
 	}
 
 	return u.resp.Body, nil
+}
+
+func (u *DefHTTP) Close() error {
+	if u.resp != nil && u.resp.Body != nil {
+		return u.resp.Body.Close()
+	}
+	return nil
+}
+
+func hasUserAgentHeader(headers []string) bool {
+	for _, header := range headers {
+		if strings.HasPrefix(strings.ToLower(header), USER_AGENT_HEADER_PREFIX) {
+			return true
+		}
+	}
+	return false
 }

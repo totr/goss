@@ -13,3 +13,23 @@ updates:
       - "aelsabbahy"
     open-pull-requests-limit: 0
 
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    assignees:
+      - "aelsabbahy"
+    reviewers:
+      - "aelsabbahy"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "saturday"
+
+  - package-ecosystem: "pip"
+    directory: "/docs"
+    schedule:
+      interval: "weekly"
+      day: "saturday"

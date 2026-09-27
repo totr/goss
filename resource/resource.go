@@ -1,19 +1,18 @@
 package resource
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 
 	"github.com/goss-org/goss/system"
-	"github.com/oleiade/reflections"
 )
 
 type Resource interface {
-	Validate(sys *system.System) []TestResult
+	Validate(ctx context.Context, sys *system.System) []TestResult
 	SetID(string)
 	SetSkip()
 	TypeKey() string
@@ -41,6 +40,11 @@ type ResourceRead interface {
 	GetMeta() meta
 }
 
+type Retryable interface {
+	GetRetryCount() int
+	GetRetryDelay() RetryDelay
+}
+
 type matcher any
 type meta map[string]any
 
@@ -66,18 +70,6 @@ func deprecateAtoI(depr any, desc string) any {
 	return float64(i)
 }
 
-func validAttrs(i any, t string) (map[string]bool, error) {
-	validAttrs := make(map[string]bool)
-	tags, err := reflections.Tags(i, t)
-	if err != nil {
-		return nil, err
-	}
-	for _, v := range tags {
-		validAttrs[strings.Split(v, ",")[0]] = true
-	}
-	return validAttrs, nil
-}
-
 func shouldSkip(results []TestResult) bool {
 	if len(results) < 1 {
 		return false
@@ -95,4 +87,21 @@ func isSet(i interface{}) bool {
 	default:
 		return i != nil
 	}
+}
+
+// isSetWarnEmpty reports whether a matcher property holds at least one
+// condition, warning first when it holds a list written out as empty.
+//
+// A list of patterns is a list of conditions that must all hold, so an empty
+// list is zero conditions: the property is skipped and always passes, which is
+// rarely what someone writing it out by hand intends. The behaviour is
+// deliberately left alone — goss add file emits contents: [] to record that it
+// captured no expectation, and erroring would invalidate every gossfile it has
+// ever generated. desc follows the same "<id>: <type>.<property>" shape as the
+// deprecation warnings.
+func isSetWarnEmpty(i any, desc string) bool {
+	if v, ok := i.([]any); ok && len(v) == 0 {
+		fmt.Fprintf(os.Stderr, "WARNING: %s is an empty list, which asserts nothing and always passes. Use \"\" to assert empty content, or remove it.\n", desc)
+	}
+	return isSet(i)
 }
